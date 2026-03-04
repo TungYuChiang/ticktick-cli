@@ -9,6 +9,7 @@ import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
+import { formatOutput } from '../lib/cli.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CLI_PATH = join(__dirname, '..', 'bin', 'ticktick.js');
@@ -223,6 +224,107 @@ describe('Due date handling', () => {
     for (const datetime of validDatetimes) {
       assert.ok(datetime.includes('T'));
     }
+  });
+});
+
+describe('formatOutput local timezone conversion', () => {
+  test('task list displays due date in local timezone', () => {
+    // Simulate TickTick API returning UTC date that crosses midnight in local TZ
+    // 2026-03-04T16:00:00.000+0000 in UTC+8 = 2026-03-05 00:00
+    const tasks = [{
+      id: 'test1234',
+      title: 'Test Task',
+      dueDate: '2026-03-04T16:00:00.000+0000',
+      priority: 'none',
+      tags: [],
+    }];
+
+    const output = formatOutput(tasks, 'text');
+
+    // The displayed date should be based on local timezone, not raw UTC slice
+    // In UTC+8, 2026-03-04T16:00Z = 2026-03-05T00:00+08:00
+    const localDate = new Date('2026-03-04T16:00:00.000+0000');
+    const expectedDate = `${localDate.getFullYear()}-${String(localDate.getMonth() + 1).padStart(2, '0')}-${String(localDate.getDate()).padStart(2, '0')}`;
+    assert.ok(output.includes(expectedDate), `Expected output to contain ${expectedDate}, got: ${output}`);
+  });
+
+  test('task list displays date-only dueDate as-is', () => {
+    const tasks = [{
+      id: 'test1234',
+      title: 'Test Task',
+      dueDate: '2026-01-30',
+      priority: 'none',
+      tags: [],
+    }];
+
+    const output = formatOutput(tasks, 'text');
+    assert.ok(output.includes('2026-01-30'));
+  });
+
+  test('task list handles missing dueDate', () => {
+    const tasks = [{
+      id: 'test1234',
+      title: 'Test Task',
+      priority: 'none',
+      tags: [],
+    }];
+
+    const output = formatOutput(tasks, 'text');
+    assert.ok(output.includes('Test Task'));
+  });
+
+  test('task detail displays due date in local timezone', () => {
+    const task = {
+      id: 'test1234',
+      fullId: 'test123456789',
+      title: 'Test Task',
+      dueDate: '2026-03-04T16:00:00.000+0000',
+      priority: 'high',
+      status: 'active',
+    };
+
+    const output = formatOutput(task, 'text');
+
+    const localDate = new Date('2026-03-04T16:00:00.000+0000');
+    const expectedDate = `${localDate.getFullYear()}-${String(localDate.getMonth() + 1).padStart(2, '0')}-${String(localDate.getDate()).padStart(2, '0')}`;
+    assert.ok(output.includes(`Due: ${expectedDate}`), `Expected Due: ${expectedDate}, got: ${output}`);
+  });
+
+  test('task detail displays createdTime in local datetime', () => {
+    const task = {
+      id: 'test1234',
+      fullId: 'test123456789',
+      title: 'Test Task',
+      priority: 'none',
+      status: 'active',
+      createdTime: '2026-01-01T00:00:00Z',
+    };
+
+    const output = formatOutput(task, 'text');
+
+    const localDt = new Date('2026-01-01T00:00:00Z');
+    const y = localDt.getFullYear();
+    const m = String(localDt.getMonth() + 1).padStart(2, '0');
+    const d = String(localDt.getDate()).padStart(2, '0');
+    const h = String(localDt.getHours()).padStart(2, '0');
+    const min = String(localDt.getMinutes()).padStart(2, '0');
+    const expectedDt = `${y}-${m}-${d} ${h}:${min}`;
+    assert.ok(output.includes(`Created: ${expectedDt}`), `Expected Created: ${expectedDt}, got: ${output}`);
+  });
+
+  test('JSON format is not affected by timezone conversion', () => {
+    const tasks = [{
+      id: 'test1234',
+      title: 'Test Task',
+      dueDate: '2026-03-04T16:00:00.000+0000',
+      priority: 'none',
+      tags: [],
+    }];
+
+    const output = formatOutput(tasks, 'json');
+    const parsed = JSON.parse(output);
+    // JSON should preserve the original value
+    assert.equal(parsed[0].dueDate, '2026-03-04T16:00:00.000+0000');
   });
 });
 
